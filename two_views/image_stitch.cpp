@@ -78,7 +78,7 @@ void findSampleHomography(std::vector<cv::Point2f> x1, std::vector<cv::Point2f> 
 		Matrix3d x2i_hat = Matrix3d::Zero(3,3);
 		x2i_hat(0,1) = -1; x2i_hat(0,2) = x2[i].y; 
 		x2i_hat(1,0) = 1; x2i_hat(1,2) = -x2[i].x; 
-		x2i_hat(2,0) = -x2[i].y; x2i_hat(2,1) = -x2[i].x; 
+		x2i_hat(2,0) = -x2[i].y; x2i_hat(2,1) = x2[i].x; 
 		MatrixXd ai = MatrixXd::Zero(9,3); 
 		ai.block(0,0,3,3) = x1[i].x*x2i_hat; 
 		ai.block(3,0,3,3) = x1[i].y*x2i_hat;
@@ -93,7 +93,7 @@ void findSampleHomography(std::vector<cv::Point2f> x1, std::vector<cv::Point2f> 
     // find index of smallest singular value
    	double min_val = std::numeric_limits<double>::infinity();
    	int min_idx; 
-    for (int i = 0; i < 9; i++){
+    for (int i = 0; i < Dx.cols(); i++){
     	if (Dx(i,i) < min_val){
     		min_idx = i; 
     		min_val = Dx(i,i);
@@ -110,13 +110,22 @@ void findSampleHomography(std::vector<cv::Point2f> x1, std::vector<cv::Point2f> 
     Hl(0,2) = Vx(6,min_idx); 
     Hl(1,2) = Vx(7,min_idx); 
     Hl(2,2) = Vx(8,min_idx);  
+
+    // test sign of Hl 
+    Vector3d x10; Vector3d x20; 
+    x10(0) = x1[0].x; x10(1) = x1[0].y; x10(2) = 1; 
+    x20(0) = x2[0].x; x20(1) = x2[0].y; x20(2) = 1; 
+    // std::cout << "x1: " << Hl*x10/Hl(2,2) << "x2: " << x20 << std::endl; 
+    if (x20.transpose()*Hl*x10 < 0){
+    	Hl = -Hl; 
+    }
     // normalize for H 
     JacobiSVD<MatrixXd> svdHl(Hl, ComputeThinU | ComputeThinV);
 	Matrix3d Dhl = svdHl.singularValues().asDiagonal();
 	H = cv::Mat(3,3, CV_64F, double(0));
 	for (int i = 0; i < 3; i++){
 		for (int j = 0; j < 3; j++){
-			H.at<double>(i,j) = Hl(i,j)/Dhl(1,1);
+			H.at<double>(i,j) = Hl(i,j)/Hl(2,2);
 		}
 	}
 }
@@ -124,17 +133,19 @@ void findSampleHomography(std::vector<cv::Point2f> x1, std::vector<cv::Point2f> 
 void findHomography(std::vector<cv::Point2f> x1, std::vector<cv::Point2f> x2, cv::Mat& H){
 	// RANSAC find homography 
 	int iters = 500; 
-	double epsilon = 0.5; 
+	double epsilon = 10; 
 	cv::Mat best_H; 
 	int max_num_inliers = 0;
 	// randomly choose 4 points and find sample homography 
 	std::vector<int> indices; 
 	for (int n = 0; n < iters; n++){
+		indices.clear(); 
 		// randomly choose 4 points 
 		for (int i = 0; i < 4; i++){
-		bool dup = false; // check for duplicates
+			bool dup = false; // check for duplicates
+			int idx; 
 			do{
-				int idx = rand() % x1.size(); 
+				idx = rand() % x1.size(); 
 				for (int j = 0; j < indices.size(); j++){
 					if (indices[j] == idx){
 						dup = true; 
@@ -142,10 +153,17 @@ void findHomography(std::vector<cv::Point2f> x1, std::vector<cv::Point2f> x2, cv
 					}
 				}
 			} while(dup);
+			indices.push_back(idx);
 		}
 		// find sample homgraphy
 		cv::Mat H_samp; 
-		findSampleHomography(x1, x2, H_samp);
+		std::vector<cv::Point2f> x1_pts; 
+		std::vector<cv::Point2f> x2_pts; 
+		for (int i = 0; i < indices.size(); i++){
+			x1_pts.push_back(x1[indices[i]]);
+			x2_pts.push_back(x2[indices[i]]);
+		}
+		findSampleHomography(x1_pts, x2_pts, H_samp);
 		// count number of inliers 
 		int num_inliers = 0;
 		for (int k = 0; k < x1.size(); k++){
@@ -156,11 +174,13 @@ void findHomography(std::vector<cv::Point2f> x1, std::vector<cv::Point2f> x2, cv
 							+ H_samp.at<double>(1,2); 
 			double x1_z = H_samp.at<double>(2,0)*x1[k].x + H_samp.at<double>(2,1)*x1[k].y
 							+ H_samp.at<double>(2,2); 
-			x1_x = x1_x/x1_z; x1_y = x1_z; 
+			x1_x = x1_x/x1_z; x1_y = x1_y/x1_z; 
+			// std::cout << x1_x << " " << x1_y << " " << x2[k].x << " " << x2[k].y << std::endl; 
 			if (sqrt((x1_x - x2[k].x)*(x1_x - x2[k].x) + (x1_y - x2[k].y)*(x1_y - x2[k].y)) < epsilon){
 				num_inliers = num_inliers + 1; 
 			}
 		}
+		std::cout << "iter: " << n << " num inliers: " << num_inliers << std::endl; 
 		if (num_inliers > max_num_inliers){
 			max_num_inliers = num_inliers; 
 			best_H = H_samp; 
