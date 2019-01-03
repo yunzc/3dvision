@@ -22,7 +22,7 @@ between two images
 using namespace Eigen;
 
 void readme(){
-	std::cout << " Usage: ./2_views/image_stitch.cpp <img1> <img2>" << std::endl; 
+	std::cout << " Usage: ./2_views/image_stitch.cpp <imgLeft> <imgRight>" << std::endl; 
 }
 
 void match_pts(cv::Mat img1, cv::Mat img2, std::vector<cv::KeyPoint>& keypoints1, 
@@ -144,15 +144,7 @@ void findHomography(std::vector<cv::Point2f> x1, std::vector<cv::Point2f> x2, cv
 		for (int i = 0; i < 4; i++){
 			bool dup = false; // check for duplicates
 			int idx; 
-			do{
-				idx = rand() % x1.size(); 
-				for (int j = 0; j < indices.size(); j++){
-					if (indices[j] == idx){
-						dup = true; 
-						break; 
-					}
-				}
-			} while(dup);
+			idx = rand() % x1.size(); 
 			indices.push_back(idx);
 		}
 		// find sample homgraphy
@@ -162,7 +154,7 @@ void findHomography(std::vector<cv::Point2f> x1, std::vector<cv::Point2f> x2, cv
 		for (int i = 0; i < indices.size(); i++){
 			x1_pts.push_back(x1[indices[i]]);
 			x2_pts.push_back(x2[indices[i]]);
-		}
+		} 
 		findSampleHomography(x1_pts, x2_pts, H_samp);
 		// count number of inliers 
 		int num_inliers = 0;
