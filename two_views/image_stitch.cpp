@@ -22,7 +22,7 @@ between two images
 using namespace Eigen;
 
 void readme(){
-	std::cout << " Usage: ./2_views/image_stitch.cpp <imgLeft> <imgRight>" << std::endl; 
+	std::cout << " Usage: ./2_views/image_stitch <imgLeft> <imgRight>" << std::endl; 
 }
 
 void match_pts(cv::Mat img1, cv::Mat img2, std::vector<cv::KeyPoint>& keypoints1, 

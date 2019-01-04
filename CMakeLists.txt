@@ -9,4 +9,6 @@ include_directories(
 )
 
 add_executable(two_views/image_stitch two_views/image_stitch.cpp)
+add_executable(two_views/image_construct two_views/image_construct.cpp)
 target_link_libraries(two_views/image_stitch ${OpenCV_LIBS} ${Eigen3_LIBRARIES})
+target_link_libraries(two_views/image_construct ${OpenCV_LIBS} ${Eigen3_LIBRARIES})
