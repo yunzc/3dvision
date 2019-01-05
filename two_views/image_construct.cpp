@@ -64,11 +64,11 @@ public:
 };
 
 ImageConstruction::ImageConstruction(double tx, double ty, double tz, double wx, 
-									double wy, double wz, double theta){
+									double wy, double wz, double thet){
 	// store values 
 	T(0) = tx; T(1) = ty; T(2) = tz; 
 	w(0) = wx; w(1) = wy; w(2) = wz;
-	theta = theta; 
+	theta = thet; 
 
 	// get screen size 
     window_w  = 3840;
@@ -76,11 +76,12 @@ ImageConstruction::ImageConstruction(double tx, double ty, double tz, double wx,
 
     // Init camera matrices 
     // First K
-    double f = 600; // can be tuned but this for now 
+    double f = 300; // can be tuned but this for now 
+    double f_theta = 0; // pixel distortion 
     double ox = (int) window_w/2; 
     double oy = (int) window_h/2;
     K = Matrix3d::Zero(3,3);
-    K(0,0) = f; K(0,1) = f; K(1,1) = f; 
+    K(0,0) = f; K(0,1) = f_theta; K(1,1) = f; 
     K(0,2) = ox; K(1,2) = oy; 
     K(2,2) = 1; 
     // Then PI 
@@ -133,8 +134,8 @@ void ImageConstruction::gen_first_view_vertices(std::vector<std::vector<cv::Poin
 		// camera perspective transform
 		img_c = K*PI*c; img_a = K*PI*a; img_b = K*PI*b; 
 		cv::Point pc, pa, pb; 
-		pc.x = img_c(0); pc.y = img_c(1); pa.x = img_a(0); 
-		pa.y = img_a(1); pb.x = img_b(0); pb.y = img_b(1);
+		pc.x = img_c(0)/img_c(2); pc.y = img_c(1)/img_c(2); pa.x = img_a(0)/img_a(2); 
+		pa.y = img_a(1)/img_a(2); pb.x = img_b(0)/img_b(2); pb.y = img_b(1)/img_b(2);
 		std::vector<cv::Point> pts;
 		pts.push_back(pc); pts.push_back(pa); pts.push_back(pb);
 		vertices.push_back(pts);
@@ -153,7 +154,7 @@ void ImageConstruction::gen_first_view_vertices(std::vector<std::vector<cv::Poin
 				pt(0) = c(0) + cos(ang); pt(1) = c(1) + sin(ang);
 				Vector3d img_pt; 
 				img_pt = K*PI*pt; 
-				cv::Point p; p.x = img_pt(0); p.y = img_pt(1); 
+				cv::Point p; p.x = img_pt(0)/img_pt(2); p.y = img_pt(1)/img_pt(2); 
 				pts.push_back(p); // add to point of line/polygon
 			}
 			vertices.push_back(pts); 
@@ -167,13 +168,17 @@ void ImageConstruction::gen_second_view_vertices(std::vector<std::vector<cv::Poi
 	Matrix4d g; 
 	// first find R 
 	Matrix3d R, w_hat; 
-	w = theta*w.normalized(); 
+	w = w.normalized(); // make sure it's normalized
 	// constrict w_hat
 	w_hat(0,1) = -w(2); w_hat(0,2) = w(1); 
 	w_hat(1,0) = w(2); w_hat(1,2) = -w(0);
 	w_hat(2,0) = -w(1); w_hat(2,1) = w(0);
-	R = Matrix3d::Identity(3,3) + (1/theta)*w_hat*sin(theta) 
-				+ (1/theta*theta)*(w_hat*w_hat)*(1 - cos(theta));
+	if (theta != 0){
+		R = Matrix3d::Identity(3,3) + w_hat*sin(theta) 
+					+ (w_hat*w_hat)*(1 - cos(theta));
+	}else{
+		R = Matrix3d::Identity(3,3);
+	}
 	// construct g
 	g.block(0,0,3,3) = R; 
 	g.block(0,3,3,1) = T; 
@@ -189,8 +194,8 @@ void ImageConstruction::gen_second_view_vertices(std::vector<std::vector<cv::Poi
 		// camera perspective transform
 		img_c = K*PI*g*c; img_a = K*PI*g*a; img_b = K*PI*g*b;
 		cv::Point pc, pa, pb; 
-		pc.x = img_c(0); pc.y = img_c(1); pa.x = img_a(0); 
-		pa.y = img_a(1); pb.x = img_b(0); pb.y = img_b(1);
+		pc.x = img_c(0)/img_c(2); pc.y = img_c(1)/img_c(2); pa.x = img_a(0)/img_a(2); 
+		pa.y = img_a(1)/img_a(2); pb.x = img_b(0)/img_b(2); pb.y = img_b(1)/img_b(2);
 		std::vector<cv::Point> pts;
 		pts.push_back(pc); pts.push_back(pa); pts.push_back(pb);
 		vertices.push_back(pts);
@@ -209,7 +214,7 @@ void ImageConstruction::gen_second_view_vertices(std::vector<std::vector<cv::Poi
 				pt(0) = c(0) + cos(ang); pt(1) = c(1) + sin(ang);
 				Vector3d img_pt; 
 				img_pt = K*PI*g*pt; 
-				cv::Point p; p.x = img_pt(0); p.y = img_pt(1); 
+				cv::Point p; p.x = img_pt(0)/img_pt(2); p.y = img_pt(1)/img_pt(2); 
 				pts.push_back(p); // add to point of line/polygon
 			}
 			vertices.push_back(pts); 
@@ -224,8 +229,8 @@ void ImageConstruction::generate_images(){
 	gen_first_view_vertices(vertices_1);
 	gen_second_view_vertices(vertices_2);
 	
-	first_image = cv::Mat::zeros(window_h, window_h, CV_8UC3);
-	second_image = cv::Mat::zeros(window_h, window_h, CV_8UC3);
+	first_image = cv::Mat::zeros(window_h, window_w, CV_8UC3);
+	second_image = cv::Mat::zeros(window_h, window_w, CV_8UC3);
 	if (vertices_1.size() > 0){
 		// [later] first vertex is of the ellipse (circle in first view)
 		// gen vertices will give center, and two points 
@@ -233,6 +238,7 @@ void ImageConstruction::generate_images(){
 		double w1, h1, ang1, w2, h2, ang2; 
 		pts_to_param_ellipse(vertices_1[0], w1, h1, ang1);
 		pts_to_param_ellipse(vertices_2[0], w2, h2, ang2);
+		double r = w1; 
 		cv::ellipse(first_image, vertices_1[0][0], cv::Size(w1, h1), ang1,
            		0, 360, cv::Scalar( 255, 0, 0 ), 3, 8);
 		cv::ellipse(second_image, vertices_2[0][0], cv::Size(w2, h2), ang2,
@@ -258,7 +264,7 @@ void ImageConstruction::generate_images(){
 			const cv::Point* ppt_2[1] = {points_2[0]};
 			int npt_2[] = {numpts};
 			cv::fillPoly(first_image, ppt_1, npt_1, 1, cv::Scalar(0,0,255),8);
-			cv::fillPoly(second_image, ppt_2, npt_2, 1, cv::Scalar(0,0,255),8);		
+			cv::fillPoly(second_image, ppt_2, npt_2, 1, cv::Scalar(0,0,255),8);	
 		}
 	}
 }
@@ -280,5 +286,5 @@ int main(int argc, char**argv){
 
 	cons.read_file(argv[1]);
 	cons.generate_images();
-	cons.save_images("scene1.jpg", "scene2.jpg");
+	cons.save_images("data/scene1.jpg", "data/scene2.jpg");
 }
