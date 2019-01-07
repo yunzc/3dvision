@@ -61,9 +61,9 @@ void match_pts(cv::Mat img1, cv::Mat img2, std::vector<cv::KeyPoint>& keypoints1
 	}
 }
 
-void get_Veronese_map(cv::Point2f ptx, VectorXd& v, int deg){
+void get_Veronese_map(Vector3d ptx, VectorXd& v, int deg){
 	// assume image pt x y z has x y corr to keypoint and z = 1
-	double x = ptx.x; double y = ptx.y; double z = ptx.z; 
+	double x = ptx(0); double y = ptx(1); double z = ptx(2); 
 	if (deg == 0){
 		v = VectorXd::Ones(0); 
 		return;
@@ -108,12 +108,41 @@ void get_matrix_A(std::vector<cv::Point2f> x1, std::vector<cv::Point2f> x2, int 
 	A = MatrixXd::Zero(N,Cn*Cn);
 	for (int i = 0; i < N; i++){
 		VectorXd v1, v2, row; 
-		get_Veronese_map(x2[i], v2, n);
-		get_Veronese_map(x1[i], v1, n);
+		Vector3d x1i, x2i;
+		x1i(0) = x1[i].x; x1i(1) = x1[i].y; x1i(2) = 1; 
+		x2i(0) = x2[i].x; x2i(1) = x2[i].y; x2i(2) = 1; 
+		get_Veronese_map(x2i, v2, n);
+		get_Veronese_map(x1i, v1, n);
 		get_Kronecker_product(v2,v1,row);
 		A.row(i) = row; 
 	}
 	return; 
+}
+
+std::vector<std::complex<double> > poly_roots(VectorXd coeffs){
+	// note coeff is orders so lower order first 
+    int sz = coeffs.size() - 1;
+    std::vector<std::complex<double> > vret;
+
+    MatrixXd companion_mat(sz, sz);
+
+    for(int n = 0; n < sz; n++){
+        for(int m = 0; m < sz; m++){
+            if(n == m + 1){
+                companion_mat(n,m) = 1.0;
+            }
+            if(m == sz - 1){
+                companion_mat(n,m) = -coeffs(n)/coeffs(sz);
+            }
+        }
+    }
+
+    MatrixXcd eig = companion_mat.eigenvalues();
+
+    for(int i = 0; i < sz; i++)
+        vret.push_back( eig(i) );
+
+    return vret;
 }
 
 int getNoM(std::vector<cv::Point2f> x1, std::vector<cv::Point2f> x2){
@@ -121,10 +150,14 @@ int getNoM(std::vector<cv::Point2f> x1, std::vector<cv::Point2f> x2){
 	// return number of motions 
 	int N = x1.size();
 	for (int i = 1; i < N + 1; i++){
+		if (x1.size() < pow(i,4)){
+			std::cout << "****** Not Enough Image Pairs *****" << std::endl; 
+			return -1; 
+		}
 		MatrixXd Ai; 
 		get_matrix_A(x1, x2, i, Ai);
 		FullPivLU<MatrixXd> lu_decomp(Ai);
-		Ci = (i + 2)*(i + 1)/2; 
+		int Ci = (i + 2)*(i + 1)/2; 
 		int rankA = lu_decomp.rank();
 		if (rankA == Ci*Ci - 1){
 			return i; 
@@ -137,11 +170,11 @@ void computeFundamentalMtrx(MatrixXd A, MatrixXd& F){
 	// computes the multibody fundamental matrix 
 	FullPivLU<MatrixXd> lu_decomp(A);
 	// find kernel 
-	MaxtrixXd K = lu_decomp.kernel(); 
+	MatrixXd K = lu_decomp.kernel(); 
 	// assume only one col 
 	VectorXd Fs = K.col(0); // stacked F
 	int Cn = (int) sqrt(A.cols());
-	F = MaxtrixXd::Zero(Cn, Cn); 
+	F = MatrixXd::Zero(Cn, Cn); 
 	// unstack Fs into F 
 	for (int i = 0; i < Cn; i++){
 		for (int j = 0; j < Cn; j++){
@@ -151,4 +184,78 @@ void computeFundamentalMtrx(MatrixXd A, MatrixXd& F){
 	return;
 }
 
-void findEpipolarLines()
+void findEpipolarLines(MatrixXd F, int n){
+	// use factorization algorithm 
+	int Cn = (n + 2)*(n + 1)/2; 
+	// pick N >= Cn - 1 vectors 
+	// with [1,0,0], [0,1,0], and [0,0,1] included 
+	std::vector<MatrixXd> l; // the many epipolar lines  
+	// first look at the 3 basic vectors 
+	for (int i = 0; i < 3; i++){
+		Vector3d x = Vector3d::Zero(3);
+		x(i) = 1;
+		VectorXd v, l_mb; 
+		get_Veronese_map(x, v, n);
+		// get multibody epipolar line 
+		l_mb = F*v;
+		std::cout << "solve: " << std::endl; 
+		// reverse since lower order first in poly_roots function 
+		std::vector<std::complex<double> > wi = poly_roots(l_mb.tail(n+1).reverse());
+		std::cout << "roots: ";
+    	for (int i = 0; i < wi.size(); i++){
+        	std::cout << wi[i];
+        	// wi.size() should equl n 
+    		double l2 = 1; double l3 = (double)-wi[i].real();
+
+    	}
+    	std::cout << std::endl; 
+	}
+	while (l.size() < Cn - 1){ // N >= cn - 1
+		Vector3d x = Vector3d::Zero(3);
+		// randomy create vector 
+		VectorXd v, l_mb; 
+		get_Veronese_map(x, v, n); 
+		l_mb = F*v;
+	}
+	
+}
+
+int main(int argc, char**argv){
+	if (argc != 3){
+		readme(); 
+		return -1; 
+	}
+
+	cv::Mat img_1 = cv::imread(argv[1]);
+	cv::Mat img_2 = cv::imread(argv[2]);
+	cv::Mat img_1_gray, img_2_gray; 
+	cv::cvtColor(img_1, img_1_gray, cv::COLOR_BGR2GRAY);
+	cv::cvtColor(img_2, img_2_gray, cv::COLOR_BGR2GRAY);
+	std::vector<cv::KeyPoint> kp1, kp2;
+	std::vector<cv::DMatch> matches; 
+	match_pts(img_1_gray, img_2_gray, kp1, kp2, matches);
+
+	// draw good matches 
+	cv::Mat img_matches;
+	cv::drawMatches(img_1, kp1, img_2, kp2, matches, img_matches, cv::Scalar::all(-1), 
+				cv::Scalar::all(-1), std::vector<char>(), cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS );
+	//-- Show detected matches
+	// cv::imshow( "Good Matches", img_matches );
+	// cv::waitKey(0);
+	// x1 are img pts from first image 
+	// x2 are img pts from snd image
+	std::vector<cv::Point2f> x1;
+	std::vector<cv::Point2f> x2;
+	for( int i = 0; i < matches.size(); i++ ){
+    	//-- Get the keypoints from the good matches
+    	x1.push_back(kp1[matches[i].queryIdx].pt);
+    	x2.push_back(kp2[matches[i].trainIdx].pt);
+	}
+
+	int NOM = getNoM(x1, x2); // find number of motions 
+	std::cout << "Number of motions: " << NOM << std::endl; 
+	MatrixXd An, F; 
+	get_matrix_A(x1, x2, NOM, An);
+	computeFundamentalMtrx(An, F);
+	findEpipolarLines(F, NOM);
+}
